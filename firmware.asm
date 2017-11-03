@@ -49,6 +49,18 @@ SDA_PIN         equ     .0
 LED_TRIS        equ     TRISC
 LED_LAT         equ     LATC
 LED_BIT         equ     .3
+         
+;-------------------------------------------------------------------------------
+         
+TMR2_HZ         equ     .64             ; Target frequency
+TMR2_PRE        equ     .64             ; Prescaler 1, 4, 16 or 64
+TMR2_POST       equ     .16             ; Postscaler 1 to 16
+       
+TMR2_PR         equ     FOSC / (.4 * TMR2_HZ * TMR2_PRE * TMR2_POST ) - .1
+         
+                if      TMR2_PR & h'ffffff00'
+                error   "Timer2 PR does not fit in 8-bits
+                endif
 
 ;===============================================================================
 ; Data Areas
@@ -56,7 +68,8 @@ LED_BIT         equ     .3
 
                 udata_shr
          
-           
+TICKS           res     .1
+            
 ;-------------------------------------------------------------------------------
             
 SEG_A           equ     .0
@@ -87,9 +100,20 @@ S4              res     .8 * .3
         
 .Interrupt      code    h'0004'
       
+                banksel PIR1
+                btfss   PIR1,TMR2IF     ; Did Timer2 cause the interrupt?
+                goto    Timer2Handled
+                bcf     PIR1,TMR2IF     ; Yes, clear the flag
+                
+                movf    TICKS,F         ; Any ticks left?
+                btfss   STATUS,Z
+                decf    TICKS,F         ; Yes, reduce the count
+Timer2Handled:
+        
                 retfie
                 
 ;===============================================================================
+; Power On Reset
 ;-------------------------------------------------------------------------------
 
 .Reset          code    h'0000'
@@ -102,7 +126,7 @@ S4              res     .8 * .3
               
 PowerOnReset:
         
-                movlw   b'11111110'     ; Switch tp 48Mhz
+                movlw   b'11111110'     ; Switch to 48Mhz
                 banksel OSCCON
                 movwf   OSCCON
                 
@@ -112,6 +136,8 @@ WaitTillStable:
                 btfss   OSCSTAT,HFIOFS  ; Stabalised yet>
                 bra     WaitTillStable
                 endif
+                
+;-------------------------------------------------------------------------------
         
                 banksel ANSELA          ; Make all pins digital
                 clrf    ANSELA
@@ -123,6 +149,27 @@ WaitTillStable:
                 movwf   TRISA
                 movlw   .0
                 movwf   TRISC
+                
+;-------------------------------------------------------------------------------
+                
+                movlw   TMR2_PR
+                banksel PR2
+                movwf   PR2
+                clrf    TMR2
+                
+                movlw   b'01111111'
+                banksel T2CON
+                movwf   T2CON
+                
+                banksel PIR2
+                bcf     PIR2,TMR2IF
+                banksel PIE1
+                bsf     PIE1,TMR2IE
+                
+;-------------------------------------------------------------------------------
+                
+                bsf     INTCON,PEIE
+                bsf     INTCON,GIE
                 
                 
                 movlw   low S4
@@ -138,7 +185,16 @@ WaitTillStable:
                 movwi   SEG_A+LED_B[FSR0]
                 
 Loop:
+                movlw   .8
+                movwf   TICKS
                 call    UpdateLeds
+                
+                clrwdt
+Wait:
+                movf    TICKS,F
+                btfss   STATUS,Z
+                bra     Wait
+                
                 bra     Loop
                 
 ;===============================================================================

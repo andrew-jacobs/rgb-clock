@@ -1,15 +1,16 @@
 MPLINK 5.08, LINKER
-Linker Map File - Created Mon Sep 25 23:49:49 2017
+Linker Map File - Created Thu Nov 02 20:32:10 2017
 
                                  Section Info
                   Section       Type    Address   Location Size(Bytes)
                 ---------  ---------  ---------  ---------  ---------
                    .Reset       code   0x000000    program   0x000002
                    .cinit    romdata   0x000001    program   0x000004
-               .Interrupt       code   0x000004    program   0x000002
-                    .code       code   0x000005    program   0x000204
+               .Interrupt       code   0x000004    program   0x000010
+                    .code       code   0x00000c    program   0x00022a
 .config_8007_BUILD/DEFAULT/PRODUCTION/FIRMWAR       code   0x008007    program   0x000002
 .config_8008_BUILD/DEFAULT/PRODUCTION/FIRMWAR       code   0x008008    program   0x000002
+               .udata_shr      udata   0x000070       data   0x000001
                 .segments      udata   0x000330       data   0x000030
                .segments0      udata   0x000620       data   0x000030
 
@@ -19,39 +20,45 @@ Linker Map File - Created Mon Sep 25 23:49:49 2017
                                Start         End      
                            ---------   ---------      
                             0x000000    0x000002      
-                            0x000004    0x000106      
+                            0x000004    0x000120      
                             0x008007    0x008008      
-            264 out of 8199 program addresses used, program memory utilization is 3%
+            290 out of 8199 program addresses used, program memory utilization is 3%
 
 
 
                               Symbols - Sorted by Name
                      Name    Address   Location    Storage File                     
                 ---------  ---------  ---------  --------- ---------                
-                     Loop   0x00001f    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                NormalLed   0x000038    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-             PowerOnReset   0x000005    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                RotateLed   0x000068    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                 SendByte   0x000098    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-               UpdateLeds   0x000021    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-           WaitTillStable   0x000009    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                     Loop   0x000033    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                NormalLed   0x000052    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+             PowerOnReset   0x00000c    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                RotateLed   0x000082    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                 SendByte   0x0000b2    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+            Timer2Handled   0x00000b    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+               UpdateLeds   0x00003b    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                     Wait   0x000037    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+           WaitTillStable   0x000010    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S1   0x000620       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S2   0x000638       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S3   0x000330       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S4   0x000348       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                    TICKS   0x000070       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
 
 
 
                               Symbols - Sorted by Address
                      Name    Address   Location    Storage File                     
                 ---------  ---------  ---------  --------- ---------                
-             PowerOnReset   0x000005    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-           WaitTillStable   0x000009    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                     Loop   0x00001f    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-               UpdateLeds   0x000021    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                NormalLed   0x000038    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                RotateLed   0x000068    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
-                 SendByte   0x000098    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+            Timer2Handled   0x00000b    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+             PowerOnReset   0x00000c    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+           WaitTillStable   0x000010    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                     Loop   0x000033    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                     Wait   0x000037    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+               UpdateLeds   0x00003b    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                NormalLed   0x000052    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                RotateLed   0x000082    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                 SendByte   0x0000b2    program     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
+                    TICKS   0x000070       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S3   0x000330       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S4   0x000348       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
                        S1   0x000620       data     static D:\OpenSource\MPLABX\rgb-clock\firmware.asm
