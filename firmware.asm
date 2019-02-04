@@ -2,16 +2,18 @@
         
         
         
-                include "p16f1454.inc"
+                include "p16f1455.inc"
                 
                 errorlevel -302
                 
+#define M(X)	(.1<<(X))
+		
 ;===============================================================================
 ;-------------------------------------------------------------------------------
                 
- __CONFIG _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _BOREN_OFF & _CLKOUTEN_OFF & _IESO_OFF & _FCMEN_OFF
+ __CONFIG _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _BOREN_OFF & _CLKOUTEN_ON & _IESO_OFF & _FCMEN_OFF
 
- __CONFIG _CONFIG2, _WRT_OFF & _CPUDIV_CLKDIV6 & _USBLSCLK_48MHz & _PLLMULT_3x & _PLLEN_ENABLED & _STVREN_ON & _BORV_LO & _LPBOR_OFF & _LVP_OFF
+ __CONFIG _CONFIG2, _WRT_OFF & _CPUDIV_NOCLKDIV & _USBLSCLK_48MHz & _PLLMULT_3x & _PLLEN_ENABLED & _STVREN_ON & _BORV_LO & _LPBOR_OFF & _LVP_OFF
 
 ;===============================================================================
 ; Hardware Configuration
@@ -52,7 +54,7 @@ LED_BIT         equ     .3
          
 ;-------------------------------------------------------------------------------
          
-TMR2_HZ         equ     .64             ; Target frequency
+TMR2_HZ         equ     .64		; Target frequency
 TMR2_PRE        equ     .64             ; Prescaler 1, 4, 16 or 64
 TMR2_POST       equ     .16             ; Postscaler 1 to 16
        
@@ -66,7 +68,16 @@ TMR2_PR         equ     FOSC / (.4 * TMR2_HZ * TMR2_PRE * TMR2_POST ) - .1
 ; Data Areas
 ;-------------------------------------------------------------------------------
 
-                udata_shr
+                udata_shr       h'070'
+		
+HR		res	.1		; Hour
+MN		res	.1		; Minute
+SC		res	.1		; Second
+SS		res	.1		; Sub seconds
+		
+RED		res	.1
+GREEN		res	.1
+BLUE		res	.1
          
 TICKS           res     .1
             
@@ -87,13 +98,13 @@ LED_B           equ     .2
                  
 .segments0      udata
                 
-S1              res     .8 * .3
-S2              res     .8 * .3
+S1              res     .8 * .3		; Hour Hi
+S2              res     .8 * .3		; Hour Lo
               
 .segments       udata
         
-S3              res     .8 * .3            
-S4              res     .8 * .3
+S3              res     .8 * .3		; Minute Hi     
+S4              res     .8 * .3		; Minute Lo
 
 ;===============================================================================
 ;-------------------------------------------------------------------------------
@@ -104,10 +115,51 @@ S4              res     .8 * .3
                 btfss   PIR1,TMR2IF     ; Did Timer2 cause the interrupt?
                 goto    Timer2Handled
                 bcf     PIR1,TMR2IF     ; Yes, clear the flag
+		
+	    movlw	M(.2)
+	    banksel	LATC
+	    xorwf	LATC,F
                 
                 movf    TICKS,F         ; Any ticks left?
                 btfss   STATUS,Z
                 decf    TICKS,F         ; Yes, reduce the count
+		
+		incf	SS,W		; Bump sub-seconds
+		movwf	SS
+		xorlw	.64
+		btfss	STATUS,Z
+		bra	Timer2Handled
+		clrf	SS
+		
+		movf	SC,W		; Bump seconds
+		addlw	.7
+		btfss	STATUS,DC
+		addlw	-.6
+		movwf	SC
+		xorlw	h'60'
+		btfss	STATUS,Z
+		bra	Timer2Handled
+		clrf	SC
+		
+		movf	MN,W		; Bump minutes
+		addlw	.7
+		btfss	STATUS,DC
+		addlw	-.6
+		movwf	MN
+		xorlw	h'60'
+		btfss	STATUS,Z
+		bra	Timer2Handled
+		clrf	MN
+		
+		movf	HR,W		; Bump hours
+		addlw	.7
+		btfss	STATUS,DC
+		addlw	-.6
+		movwf	HR
+		xorlw	h'24'
+		btfss	STATUS,Z
+		bra	Timer2Handled
+		clrf	HR	
 Timer2Handled:
         
                 retfie
@@ -126,14 +178,14 @@ Timer2Handled:
               
 PowerOnReset:
         
-                movlw   b'11111110'     ; Switch to 48Mhz
+                movlw   b'11111100'     ; Switch to 48Mhz
                 banksel OSCCON
                 movwf   OSCCON
                 
                 clrwdt
                 ifndef  __MPLAB_DEBUGGER_SIMULATOR
 WaitTillStable:
-                btfss   OSCSTAT,HFIOFS  ; Stabalised yet>
+                btfss   OSCSTAT,HFIOFS  ; Stabilised yet?
                 bra     WaitTillStable
                 endif
                 
@@ -147,56 +199,383 @@ WaitTillStable:
                 banksel TRISA           ; Set the I/O directions
                 movlw   .0
                 movwf   TRISA
-                movlw   .0
+                movlw	M(SWA_PIN)|M(SWB_PIN)  
                 movwf   TRISC
                 
 ;-------------------------------------------------------------------------------
                 
-                movlw   TMR2_PR
+                movlw   TMR2_PR		; Set the period
                 banksel PR2
                 movwf   PR2
                 clrf    TMR2
                 
-                movlw   b'01111111'
+                movlw   b'01111111'	; Configure the timer
                 banksel T2CON
                 movwf   T2CON
                 
                 banksel PIR2
-                bcf     PIR2,TMR2IF
+                bcf     PIR2,TMR2IF	; Prepare interrupts
                 banksel PIE1
                 bsf     PIE1,TMR2IE
                 
 ;-------------------------------------------------------------------------------
-                
-                bsf     INTCON,PEIE
+		
+		clrf	HR		; Reset the time
+		clrf	MN
+		clrf	SC
+                clrf	SS
+		
+                bsf     INTCON,PEIE	; Start interrupt handling
                 bsf     INTCON,GIE
-                
-                
-                movlw   low S4
-                movwf   FSR0L
-                movlw   high S4
-                movwf   FSR0H
-                
-                movlw   .0
-                movwi   SEG_A+LED_R[FSR0]
-                movlw   .240
-                movwi   SEG_A+LED_G[FSR0]
-                movlw   .255
-                movwi   SEG_A+LED_B[FSR0]
-                
+      
+;===============================================================================
+; Time Display
+;-------------------------------------------------------------------------------
+		
+                call	SelectHrHi	; Clear segments
+		call	SetBlank
+		call	SelectHrLo
+		call	SetBlank
+		call	SelectMnHi
+		call	SetBlank
+		call	SelectMnLo
+		call	SetBlank
+		   
 Loop:
-                movlw   .8
+                movlw   .8		; 
                 movwf   TICKS
                 call    UpdateLeds
-                
-                clrwdt
+		
+		call	SelectHrHi
+		swapf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+		
+		call	SelectHrLo
+		movf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		btfss	SS,.5
+		call	SetWhite
+		call	SetSegment
+
+		call	SelectMnHi
+		swapf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		btfss	SS,.5
+		call	SetWhite
+		call	SetSegment
+
+		call	SelectMnLo
+		movf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+
 Wait:
                 movf    TICKS,F
                 btfss   STATUS,Z
                 bra     Wait
                 
                 bra     Loop
-                
+		
+;-------------------------------------------------------------------------------
+		
+SelectHrHi:
+                movlw   low S1
+                movwf   FSR0L
+                movlw   high S1
+                movwf   FSR0H
+		return
+		
+SelectHrLo:
+                movlw   low S2
+                movwf   FSR0L
+                movlw   high S2
+                movwf   FSR0H
+		return
+		
+SelectMnHi:
+                movlw   low S3
+                movwf   FSR0L
+                movlw   high S3
+                movwf   FSR0H
+		return
+
+SelectMnLo:
+                movlw   low S4
+                movwf   FSR0L
+                movlw   high S4
+                movwf   FSR0H
+		return
+
+;-------------------------------------------------------------------------------
+
+SetBlank:
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		goto	SetSegment
+
+;-------------------------------------------------------------------------------
+		
+ShowDigit:
+		andlw	h'0f'
+		brw
+		
+		bra	Show0
+		bra	Show1
+		bra	Show2
+		bra	Show3
+		bra	Show4
+		bra	Show5
+		bra	Show6
+		bra	Show7
+		bra	Show8
+		bra	Show9
+		return
+		return
+		return
+		return
+		return
+		
+Show0:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlue
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetBlack
+		goto	SetSegment
+
+Show1:
+		call	SetBlack
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		goto	SetSegment
+
+Show2:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlue
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+
+Show3:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+
+Show4:
+		call	SetBlack
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+Show5:
+		call	SetRed
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+Show6:
+		call	SetRed
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlue
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+Show7:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		goto	SetSegment
+		
+Show8:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlue
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+Show9:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+		
+;===============================================================================
+; Time Display
+;-------------------------------------------------------------------------------
+		
+
+		
+
+;===============================================================================
+;
+;-------------------------------------------------------------------------------
+
+SET_RGB		macro	XR,XG,XB,XP
+		movlw	((XR * XP) / .100)
+		movwf	RED
+		movlw	((XG * XP) / .100)
+		movwf	GREEN
+		movlw	((XB * XP) / .100)
+		movwf	BLUE
+		endm
+		
+SetBlack:
+		SET_RGB	h'00',h'00',h'00',.20
+		return
+		
+SetWhite:
+		SET_RGB	h'ff',h'ff',h'ff',.20
+		return
+		
+SetRed:
+		SET_RGB	h'ff',h'00',h'00',.20
+		return
+		
+SetOrange:
+		SET_RGB	h'ff',h'8c',h'00',.20
+		return
+    
+SetYellow:
+		SET_RGB	h'ff',h'ff',h'00',.20
+		return
+		
+SetGreen:
+		SET_RGB	h'00',h'ff',h'00',.20
+		return
+		
+SetBlue:
+		SET_RGB	h'00',h'00',h'ff',.20
+		return
+		
+SetIndigo:
+		SET_RGB	h'4b',h'00',h'82',.20
+		return
+		
+SetViolet:
+		SET_RGB	h'ee',h'82',h'ee',.20
+		return
+		
+
+;-------------------------------------------------------------------------------
+			
+SetSegment:
+		movf	RED,W
+		movwi	LED_R[FSR0]
+		movf	GREEN,W
+		movwi	LED_G[FSR0]
+		movf	BLUE,W
+		movwi	LED_B[FSR0]
+		addfsr	FSR0,.3
+		return
+		
 ;===============================================================================
 ; I2C
 ;-------------------------------------------------------------------------------
@@ -211,24 +590,24 @@ Wait:
                 
 UpdateLeds:
                 bcf     INTCON,GIE      ; Disable interrupts
-                movlw   low S4          ; Update low seconds
+                movlw   low S1          ; Update low seconds
                 movwf   FSR0L
-                movlw   high S4
+                movlw   high S1
                 movwf   FSR0H
                 call    NormalLed
-                movlw   low S3          ; Then high seconds
-                movwf   FSR0L
-                movlw   high S3
-                movwf   FSR0H
-                call    RotateLed
-                movlw   low S2          ; Then low minutes
+                movlw   low S2          ; Then high seconds
                 movwf   FSR0L
                 movlw   high S2
                 movwf   FSR0H
-                call    NormalLed       ; Then high minutes
-                movlw   low S1
+                call    NormalLed
+		movlw   low S3          ; Then low minutes
                 movwf   FSR0L
-                movlw   high S1
+                movlw   high S3
+                movwf   FSR0H
+                call    RotateLed       ; Then high minutes
+                movlw   low S4
+                movwf   FSR0L
+                movlw   high S4
                 movwf   FSR0H
                 call    NormalLed
                 bsf     INTCON,GIE      ; Re-enable interrupts
@@ -357,6 +736,7 @@ SEND_BIT        macro   BIT
                 
 SEND_GAP        macro
                 nop
+		nop
                 nop
                 nop
                 endm
