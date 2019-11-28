@@ -1,1 +1,1 @@
-# A RGB Seven Segment Alarm Clock
+# An RGB Seven Segment Alarm Clock

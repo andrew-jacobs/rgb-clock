@@ -1,15 +1,34 @@
-
+;===============================================================================
+;  ____   ____ ____         ____ _            _    
+; |  _ \ / ___| __ )       / ___| | ___   ___| | __
+; | |_) | |  _|  _ \ _____| |   | |/ _ \ / __| |/ /
+; |  _ <| |_| | |_) |_____| |___| | (_) | (__|   < 
+; |_| \_\\____|____/       \____|_|\___/ \___|_|\_\
+;                                                  
+;-------------------------------------------------------------------------------
+; Copyright (C)2019 Andrew John Jacobs.
+; All rights reserved.
+;
+; This work is made available under the terms of the Creative Commons
+; Attribution-NonCommercial-ShareAlike 4.0 International license. Open the
+; following URL to see the details.
+;
+; http://creativecommons.org/licenses/by-nc-sa/4.0/
+;===============================================================================
+;
+; Notes:
+;
+;-------------------------------------------------------------------------------
         
-        
-        
-                include "p16f1455.inc"
-                
                 errorlevel -302
                 
 #define M(X)	(.1<<(X))
 		
 ;===============================================================================
+; Device Configuration
 ;-------------------------------------------------------------------------------
+                
+                include "p16f1455.inc"
                 
  __CONFIG _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _BOREN_OFF & _CLKOUTEN_ON & _IESO_OFF & _FCMEN_OFF
 
@@ -28,27 +47,30 @@ FOSC            equ     OSC * PLL
 
 ; Inputs
             
-SQW_TRIS        equ     TRISA
+SQW_TRIS        equ     TRISA		; SQW output from DS1307
 SQW_PORT        equ     PORTA
 SQW_PIN         equ     .5
 
-SWA_TRIS        equ     TRISC
+SWA_TRIS        equ     TRISC		; Switch A (SELECT)
 SWA_PORT        equ     PORTC
 SWA_PIN         equ     .5
             
-SWB_TRIS        equ     TRISC
+SWB_TRIS        equ     TRISC		; Switch B (CHANGE)
 SWB_PORT        equ     PORTC
 SWB_PIN         equ     .4
 
 ; Outputs
-         
-SCL_TRIS        equ     TRISC
+
+SCL_TRIS        equ     TRISA		; Software generated I2C SCL
+SCL_LAT		equ	LATA
 SCL_PIN         equ     .0
 
-SDA_TRIS        equ     TRISC
-SDA_PIN         equ     .0
+SDA_TRIS        equ     TRISA		; Software generated I2C SDA
+SDA_PORT        equ     PORTA
+SDA_LAT		equ	LATA
+SDA_PIN         equ     .1
 
-LED_TRIS        equ     TRISC
+LED_TRIS        equ     TRISC		; Neo pixel data out
 LED_LAT         equ     LATC
 LED_BIT         equ     .3
          
@@ -107,6 +129,7 @@ S3              res     .8 * .3		; Minute Hi
 S4              res     .8 * .3		; Minute Lo
 
 ;===============================================================================
+; Interrupt Handler
 ;-------------------------------------------------------------------------------
         
 .Interrupt      code    h'0004'
@@ -579,6 +602,8 @@ SetSegment:
 ;===============================================================================
 ; I2C
 ;-------------------------------------------------------------------------------
+		
+		
 
         
 ;===============================================================================
@@ -586,7 +611,7 @@ SetSegment:
 ;-------------------------------------------------------------------------------
 
 ; Sends state of all the segments to the display modules. Interrupts must be
-; disable during the transfer as the pulse timings are critical.
+; disabled during the transfer as the pulse timings are critical.
                 
 UpdateLeds:
                 bcf     INTCON,GIE      ; Disable interrupts
