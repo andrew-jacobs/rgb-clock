@@ -102,6 +102,8 @@ GREEN		res	.1
 BLUE		res	.1
          
 TICKS           res     .1
+	  
+SCRATCH		res	.1
             
 ;-------------------------------------------------------------------------------
             
@@ -247,6 +249,9 @@ WaitTillStable:
 		clrf	MN
 		clrf	SC
                 clrf	SS
+		
+		call	I2CStop
+		call	I2CStop
 		
                 bsf     INTCON,PEIE	; Start interrupt handling
                 bsf     INTCON,GIE
@@ -538,7 +543,7 @@ Show9:
 		
 
 ;===============================================================================
-;
+; RGB Color Selection
 ;-------------------------------------------------------------------------------
 
 SET_RGB		macro	XR,XG,XB,XP
@@ -552,40 +557,44 @@ SET_RGB		macro	XR,XG,XB,XP
 		
 SetBlack:
 		SET_RGB	h'00',h'00',h'00',.20
-		return
+		bra	SetBrightness
 		
 SetWhite:
 		SET_RGB	h'ff',h'ff',h'ff',.20
-		return
+		bra	SetBrightness
 		
 SetRed:
 		SET_RGB	h'ff',h'00',h'00',.20
-		return
+		bra	SetBrightness
 		
 SetOrange:
 		SET_RGB	h'ff',h'8c',h'00',.20
-		return
+		bra	SetBrightness
     
 SetYellow:
 		SET_RGB	h'ff',h'ff',h'00',.20
-		return
+		bra	SetBrightness
 		
 SetGreen:
 		SET_RGB	h'00',h'ff',h'00',.20
-		return
+		bra	SetBrightness
 		
 SetBlue:
 		SET_RGB	h'00',h'00',h'ff',.20
-		return
+		bra	SetBrightness
 		
 SetIndigo:
 		SET_RGB	h'4b',h'00',h'82',.20
-		return
+		bra	SetBrightness
 		
 SetViolet:
 		SET_RGB	h'ee',h'82',h'ee',.20
-		return
+		bra	SetBrightness
 		
+; If the display is dimmed then reduce RGB colour values by a fixed.
+		
+SetBrightness:
+		return
 
 ;-------------------------------------------------------------------------------
 			
@@ -602,10 +611,134 @@ SetSegment:
 ;===============================================================================
 ; I2C
 ;-------------------------------------------------------------------------------
-		
-		
+	
 
-        
+		
+I2CStart:
+		call	SetSclLo
+		call	SetSdaHi
+		call	SetSclHi
+		call	SetSdaLo
+		goto	SetSclLo
+		
+I2CStop:
+		call	SetSclLo
+		call	SetSdaLo
+		call	SetSclHi
+		goto	SetSdaHi
+
+I2CAck:
+		call	SetSdaLo
+		call	SetSclHi
+		call	SetSclLo
+		goto	SetSdaHi
+		
+I2CNak:
+		call	SetSdaHi
+		call	SetSclHi
+		goto	SetSclLo
+		
+		
+I2CSend:
+		movwf	SCRATCH
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		goto	SetSdaHi
+		
+I2CTxBit:
+		rlf	SCRATCH,F
+		btfsc	STATUS,C
+		bra	I2CTxHi
+		call	SetSdaLo
+		bra	I2CTxClk
+I2CTxHi:	call	SetSclHi
+I2CTxClk:	call	SetSclHi
+		goto	SetSclLo
+		
+I2CRecv:
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		call	I2CRxBit
+		movf	SCRATCH,W
+		return
+		
+I2CRxBit:
+		call	SetSclHi
+		banksel	SDA_PORT
+		lslf	SCRATCH,F	
+		btfsc	SDA_PORT,SDA_PIN
+		incf	SCRATCH,F
+		goto	SetSclLo
+
+; Return after delaying for around 50uS
+		
+I2CDelay:
+		call	I2CPause
+		call	I2CPause
+		call	I2CPause
+		call	I2CPause
+
+; Return after delaying for around 10uS
+		
+I2CPause:
+		clrwdt
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop		
+		return
+
+; Set the SCL line high by making it an input and let the external resistor
+; pull the signal hi.
+		
+SetSclHi:
+		banksel	SCL_TRIS
+		bsf	SCL_TRIS,SCL_PIN
+		goto	I2CDelay
+	
+; Set the SCL line low by making it an output with a zero bit in the latch.
+		
+SetSclLo:
+		banksel	SCL_LAT
+		bcf	SCL_LAT,SCL_PIN
+		banksel	SCL_TRIS
+		bcf	SCL_TRIS,SCL_PIN
+		goto	I2CDelay
+		
+; Set the SDA line high by making it an input and let the external resistor
+; pull the signal hi.
+		
+SetSdaHi:
+		banksel	SDA_TRIS
+		bsf	SDA_TRIS,SDA_PIN
+		goto	I2CDelay
+		
+; Set the SCL line low by making it an output with a zero bit in the latch.
+		
+SetSdaLo:
+		banksel	SDA_LAT
+		bcf	SDA_LAT,SDA_PIN
+		banksel	SDA_TRIS
+		bcf	SDA_TRIS,SDA_PIN
+		goto	I2CDelay
+		
 ;===============================================================================
 ; NeoPixels
 ;-------------------------------------------------------------------------------
