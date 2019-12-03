@@ -30,7 +30,7 @@
                 
                 include "p16f1455.inc"
                 
- __CONFIG _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _BOREN_OFF & _CLKOUTEN_ON & _IESO_OFF & _FCMEN_OFF
+ __CONFIG _CONFIG1, _FOSC_INTOSC & _WDTE_OFF & _PWRTE_OFF & _MCLRE_ON & _CP_OFF & _BOREN_OFF & _CLKOUTEN_OFF & _IESO_OFF & _FCMEN_OFF
 
  __CONFIG _CONFIG2, _WRT_OFF & _CPUDIV_NOCLKDIV & _USBLSCLK_48MHz & _PLLMULT_3x & _PLLEN_ENABLED & _STVREN_ON & _BORV_LO & _LPBOR_OFF & _LVP_OFF
 
@@ -47,9 +47,9 @@ FOSC            equ     OSC * PLL
 
 ; Inputs
             
-SQW_TRIS        equ     TRISA		; SQW output from DS1307
-SQW_PORT        equ     PORTA
-SQW_PIN         equ     .5
+SQW_TRIS        equ     TRISC		; SQW output from DS1307
+SQW_PORT        equ     PORTC
+SQW_PIN         equ     .2
 
 SWA_TRIS        equ     TRISC		; Switch A (SELECT)
 SWA_PORT        equ     PORTC
@@ -63,12 +63,12 @@ SWB_PIN         equ     .4
 
 SCL_TRIS        equ     TRISA		; Software generated I2C SCL
 SCL_LAT		equ	LATA
-SCL_PIN         equ     .0
+SCL_PIN         equ     .4
 
 SDA_TRIS        equ     TRISA		; Software generated I2C SDA
 SDA_PORT        equ     PORTA
 SDA_LAT		equ	LATA
-SDA_PIN         equ     .1
+SDA_PIN         equ     .5
 
 LED_TRIS        equ     TRISC		; Neo pixel data out
 LED_LAT         equ     LATC
@@ -85,6 +85,10 @@ TMR2_PR         equ     FOSC / (.4 * TMR2_HZ * TMR2_PRE * TMR2_POST ) - .1
                 if      TMR2_PR & h'ffffff00'
                 error   "Timer2 PR does not fit in 8-bits
                 endif
+
+DS1307		equ	h'd0'
+I2C_RD		equ	h'01'
+I2C_WR		equ	h'00'
 
 ;===============================================================================
 ; Data Areas
@@ -141,10 +145,6 @@ S4              res     .8 * .3		; Minute Lo
                 goto    Timer2Handled
                 bcf     PIR1,TMR2IF     ; Yes, clear the flag
 		
-	    movlw	M(.2)
-	    banksel	LATC
-	    xorwf	LATC,F
-                
                 movf    TICKS,F         ; Any ticks left?
                 btfss   STATUS,Z
                 decf    TICKS,F         ; Yes, reduce the count
@@ -224,7 +224,7 @@ WaitTillStable:
                 banksel TRISA           ; Set the I/O directions
                 movlw   .0
                 movwf   TRISA
-                movlw	M(SWA_PIN)|M(SWB_PIN)  
+                movlw	M(SWA_PIN)|M(SWB_PIN)|M(SQW_PIN) 
                 movwf   TRISC
                 
 ;-------------------------------------------------------------------------------
@@ -245,13 +245,7 @@ WaitTillStable:
                 
 ;-------------------------------------------------------------------------------
 		
-		clrf	HR		; Reset the time
-		clrf	MN
-		clrf	SC
-                clrf	SS
-		
-		call	I2CStop
-		call	I2CStop
+		call	RtcInit		; Read initial time
 		
                 bsf     INTCON,PEIE	; Start interrupt handling
                 bsf     INTCON,GIE
@@ -609,10 +603,82 @@ SetSegment:
 		return
 		
 ;===============================================================================
+; DS1307 RTC
+;-------------------------------------------------------------------------------
+		
+RtcInit:
+		call	I2CStop
+		call	I2CStop
+
+ 		
+		call	RtcRead
+		btfsc	SC,.7		; Is timer running?
+		bra	InvalidTime	; No.
+		btfss	HR,.6		; 24 Hour clock?
+		bra	ValidTime	; Yes
+
+InvalidTime:
+		clrf	HR		; Reset the time
+		clrf	MN
+		clrf	SC
+		call	RtcWrite	; And write back
+	
+ValidTime:
+		call	I2CStart	; Configure SQW for 1Hz output
+		movlw	DS1307|I2C_WR
+		call	I2CSend
+		movlw	h'07'
+		call	I2CSend
+		movlw	h'10'
+		call	I2CSend
+		call	I2CStop	
+		
+		clrf	SS
+		return
+
+RtcRead:
+		call	I2CStart
+		movlw	DS1307|I2C_WR
+		call	I2CSend
+		movlw	h'00'
+		call	I2CSend
+		call	I2CStop
+	
+		call	I2CStart
+		movlw	DS1307|I2C_RD
+		call	I2CSend
+		call	I2CRecv
+		movwf	SC
+		call	I2CAck
+		call	I2CRecv
+		movwf	MN
+		call	I2CAck
+		call	I2CRecv
+		movwf	HR
+		call	I2CNak
+		goto	I2CStop
+		
+RtcWrite:
+		call	I2CStart
+		movlw	DS1307|I2C_WR
+		call	I2CSend
+		movlw	h'00'
+		call	I2CSend
+		
+		movf	SC,W
+		andlw	h'7f'
+		call	I2CSend
+		movf	MN,W
+		andlw	h'7f'
+		call	I2CSend
+		movf	HR,W
+		andlw	h'3f'
+		call	I2CSend		
+		goto	I2CStop
+		
+;===============================================================================
 ; I2C
 ;-------------------------------------------------------------------------------
-	
-
 		
 I2CStart:
 		call	SetSclLo
@@ -633,31 +699,30 @@ I2CAck:
 		call	SetSclLo
 		goto	SetSdaHi
 		
+		
+I2CSend:
+		movwf	SCRATCH		; Save the byte to be sent
+		call	I2CTxBit	; Send MSB ..
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit
+		call	I2CTxBit	; .. to LSB, then use NAK
+		
 I2CNak:
 		call	SetSdaHi
 		call	SetSclHi
 		goto	SetSclLo
-		
-		
-I2CSend:
-		movwf	SCRATCH
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		call	I2CTxBit
-		goto	SetSdaHi
-		
+			
 I2CTxBit:
 		rlf	SCRATCH,F
 		btfsc	STATUS,C
 		bra	I2CTxHi
 		call	SetSdaLo
 		bra	I2CTxClk
-I2CTxHi:	call	SetSclHi
+I2CTxHi:	call	SetSdaHi
 I2CTxClk:	call	SetSclHi
 		goto	SetSclLo
 		
@@ -699,10 +764,6 @@ I2CPause:
 		nop
 		nop
 		nop
-		nop
-		nop
-		nop
-		nop		
 		return
 
 ; Set the SCL line high by making it an input and let the external resistor
