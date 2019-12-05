@@ -53,11 +53,11 @@ SQW_PIN         equ     .2
 
 SWA_TRIS        equ     TRISC		; Switch A (SELECT)
 SWA_PORT        equ     PORTC
-SWA_PIN         equ     .5
+SWA_PIN         equ     .4
             
 SWB_TRIS        equ     TRISC		; Switch B (CHANGE)
 SWB_PORT        equ     PORTC
-SWB_PIN         equ     .4
+SWB_PIN         equ     .5
 
 ; Outputs
 
@@ -76,7 +76,7 @@ LED_BIT         equ     .3
          
 ;-------------------------------------------------------------------------------
          
-TMR2_HZ         equ     .64		; Target frequency
+TMR2_HZ         equ     .100		; Target frequency
 TMR2_PRE        equ     .64             ; Prescaler 1, 4, 16 or 64
 TMR2_POST       equ     .16             ; Postscaler 1 to 16
        
@@ -86,6 +86,8 @@ TMR2_PR         equ     FOSC / (.4 * TMR2_HZ * TMR2_PRE * TMR2_POST ) - .1
                 error   "Timer2 PR does not fit in 8-bits
                 endif
 
+; DS1307 I2C address
+		
 DS1307		equ	h'd0'
 I2C_RD		equ	h'01'
 I2C_WR		equ	h'00'
@@ -99,16 +101,19 @@ I2C_WR		equ	h'00'
 HR		res	.1		; Hour
 MN		res	.1		; Minute
 SC		res	.1		; Second
-SS		res	.1		; Sub seconds
 		
-RED		res	.1
+RED		res	.1		; RGB colour
 GREEN		res	.1
 BLUE		res	.1
          
-TICKS           res     .1
-	  
+TICKS           res     .1		; Count down tick counter
+SQW		res	.1		; State of SQW at last interrupt
+UPDATED		res	.1		; Non-zero if SQW has changed
+		
+BRIGHT		res	.1		; Bit 7 set if bright display
+
 SCRATCH		res	.1
-            
+
 ;-------------------------------------------------------------------------------
             
 SEG_A           equ     .0
@@ -148,47 +153,76 @@ S4              res     .8 * .3		; Minute Lo
                 movf    TICKS,F         ; Any ticks left?
                 btfss   STATUS,Z
                 decf    TICKS,F         ; Yes, reduce the count
+				
+		banksel	SQW_PORT	; Read SQW state
+		movf	SQW_PORT,W
+		xorwf	SQW,W		; Save latest state
+		xorwf	SQW,F
+
+		andlw	M(SQW_PIN)	; SQW Changed?
+		btfsc	STATUS,Z
+		bra	Timer2Handled	; No.
+		bsf	UPDATED,.0	; Yes.
 		
-		incf	SS,W		; Bump sub-seconds
-		movwf	SS
-		xorlw	.64
-		btfss	STATUS,Z
-		bra	Timer2Handled
-		clrf	SS
+		btfss	SQW,SQW_PIN	; SQW now HI?
+		bra	Timer2Handled	; No.
 		
-		movf	SC,W		; Bump seconds
-		addlw	.7
-		btfss	STATUS,DC
-		addlw	-.6
-		movwf	SC
-		xorlw	h'60'
-		btfss	STATUS,Z
-		bra	Timer2Handled
-		clrf	SC
-		
-		movf	MN,W		; Bump minutes
-		addlw	.7
-		btfss	STATUS,DC
-		addlw	-.6
-		movwf	MN
-		xorlw	h'60'
-		btfss	STATUS,Z
-		bra	Timer2Handled
-		clrf	MN
-		
-		movf	HR,W		; Bump hours
-		addlw	.7
-		btfss	STATUS,DC
-		addlw	-.6
-		movwf	HR
-		xorlw	h'24'
-		btfss	STATUS,Z
-		bra	Timer2Handled
-		clrf	HR	
+		call	BumpSeconds	; Bump the time
+		btfsc	STATUS,Z
+		call	BumpMinutes
+		btfsc	STATUS,Z
+		call	BumpHours	
 Timer2Handled:
         
                 retfie
-                
+		
+;-------------------------------------------------------------------------------
+
+; Add one to the seconds value. Return with Z set to indicate if the value
+; has wrapped around.
+
+BumpSeconds:
+		movf	SC,W		; Bump seconds
+		addlw	.7
+		btfss	STATUS,DC	; .. decimal adjust
+		addlw	-.6
+		movwf	SC
+		xorlw	h'60'		; Reached limit?
+		btfss	STATUS,Z
+		return			; No
+		clrf	SC		; Yes
+		return
+		
+; Add one to the minutes value. Return with Z set to indicate if the value
+; has wrapped around.
+
+BumpMinutes:
+		movf	MN,W		; Bump minutes
+		addlw	.7
+		btfss	STATUS,DC	; .. decimal adjust
+		addlw	-.6
+		movwf	MN
+		xorlw	h'60'		; Reached limit?
+		btfss	STATUS,Z
+		return			; No
+		clrf	MN		; Yes
+		return
+	
+; Add one to the hours value. Return with Z set to indicate if the value has
+; wrapped around.
+
+BumpHours:
+		movf	HR,W		; Bump hours
+		addlw	.7
+		btfss	STATUS,DC	; .. decimal adjust
+		addlw	-.6
+		movwf	HR
+		xorlw	h'24'		; Reached limit?
+		btfss	STATUS,Z
+		return			; No
+		clrf	HR		; Yes
+		return			
+
 ;===============================================================================
 ; Power On Reset
 ;-------------------------------------------------------------------------------
@@ -218,6 +252,7 @@ WaitTillStable:
         
                 banksel ANSELA          ; Make all pins digital
                 clrf    ANSELA
+		clrf	ANSELC
                 banksel LATA
                 clrf    LATA
                 clrf    LATC
@@ -250,10 +285,6 @@ WaitTillStable:
                 bsf     INTCON,PEIE	; Start interrupt handling
                 bsf     INTCON,GIE
       
-;===============================================================================
-; Time Display
-;-------------------------------------------------------------------------------
-		
                 call	SelectHrHi	; Clear segments
 		call	SetBlank
 		call	SelectHrLo
@@ -262,13 +293,161 @@ WaitTillStable:
 		call	SetBlank
 		call	SelectMnLo
 		call	SetBlank
-		   
-Loop:
-                movlw   .8		; 
-                movwf   TICKS
-                call    UpdateLeds
 		
-		call	SelectHrHi
+                call    UpdateLeds	; And update the pixels
+		
+;===============================================================================
+; User Inteface
+;-------------------------------------------------------------------------------
+		
+WaitForPress:
+		clrwdt
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashSeconds	; Yes, update the time
+		
+		movlw	.10		; Set press timeout
+		movwf	TICKS
+		
+		banksel	SWA_PORT	; Check switches
+		btfss	SWA_PORT,SWA_PIN
+		bra	TimeRelease	
+		btfss	SWB_PORT,SWB_PIN
+		bra	ThemeRelease
+
+		bra	WaitForPress
+
+;-------------------------------------------------------------------------------
+
+TimeRelease:
+		clrwdt			
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashSeconds	; Yes, update the time
+		
+		banksel	SWA_PORT	; Has the switch been released?
+		btfss	SWA_PORT,SWA_PIN
+		bra	TimeRelease	; No
+		movf	TICKS,W		; Yes, for debounce period?
+		btfss	STATUS,Z
+		bra	WaitForPress	; No.
+		
+AlterHours:
+		clrwdt
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashHours
+		
+		movlw	.10		; Set press timeout
+		movwf	TICKS
+		
+		banksel	SWA_PORT	; Check switches
+		btfss	SWA_PORT,SWA_PIN
+		bra	HoursRelease	
+		btfsc	SWB_PORT,SWB_PIN
+		bra	AlterHours
+		
+RepeatHours:
+		call	BumpHours	; Change the time
+		
+		movlw	.100		; Set repeat timeout
+		movwf	TICKS
+		
+HeldHours:
+		clrwdt
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashHours
+		
+		banksel	SWB_PORT	; Switch held?
+		btfsc	SWB_PORT,SWB_PIN
+		bra	AlterHours
+	
+		movf	TICKS,W		; Timeout out?
+		btfss	STATUS,Z
+		bra	HeldHours	; No
+		bra	RepeatHours	; Yes
+		
+;-------------------------------------------------------------------------------
+		
+HoursRelease:
+		clrwdt	
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashHours
+		
+		banksel	SWA_PORT	; Has the switch been released?
+		btfss	SWA_PORT,SWA_PIN
+		bra	HoursRelease	; No
+		movf	TICKS,W		; Yes, for debounce period?
+		btfss	STATUS,Z
+		bra	AlterHours	; No.
+	
+AlterMinutes:
+		clrwdt
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashMinutes	
+    		
+		movlw	.10		; Set press timeout
+		movwf	TICKS
+		
+		banksel	SWA_PORT	; Check switches
+		btfss	SWA_PORT,SWA_PIN
+		bra	MinutesRelease	
+		btfsc	SWB_PORT,SWB_PIN
+		bra	AlterMinutes
+		
+RepeatMinutes:
+		call	BumpMinutes
+
+		movlw	.100		; Set repeat timeout
+		movwf	TICKS
+		
+HeldMinutes:
+		clrwdt
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashMinutes
+		
+		banksel	SWB_PORT	; Switch held?
+		btfsc	SWB_PORT,SWB_PIN
+		bra	AlterMinutes
+	
+		movf	TICKS,W		; Timeout out?
+		btfss	STATUS,Z
+		bra	HeldMinutes	; No
+		bra	RepeatMinutes	; Yes
+
+;-------------------------------------------------------------------------------
+		
+MinutesRelease:
+		clrwdt			; Has the switch been released?
+		banksel	SWA_PORT
+		btfss	SWA_PORT,SWA_PIN
+		bra	MinutesRelease	; No
+		movf	TICKS,W		; Yes, for debounce period?
+		btfss	STATUS,Z
+		bra	AlterMinutes	; No.
+		
+		call	RtcWrite	; Save back to RTC
+		bra	WaitForPress	; .. and go back to display
+		
+;-------------------------------------------------------------------------------
+		
+ThemeRelease:
+
+		bra	WaitForPress
+	
+		
+;===============================================================================
+; Time Display
+;-------------------------------------------------------------------------------
+
+; Display the current time flashing the seconds in sync with the SQW input.
+
+FlashSeconds:
+		call	SelectHrHi	; Work out new pixel states
 		swapf	HR,W
 		call	ShowDigit
 		call	SetBlack
@@ -278,7 +457,7 @@ Loop:
 		movf	HR,W
 		call	ShowDigit
 		call	SetBlack
-		btfss	SS,.5
+		btfss	SQW,SQW_PIN
 		call	SetWhite
 		call	SetSegment
 
@@ -286,7 +465,7 @@ Loop:
 		swapf	MN,W
 		call	ShowDigit
 		call	SetBlack
-		btfss	SS,.5
+		btfss	SQW,SQW_PIN
 		call	SetWhite
 		call	SetSegment
 
@@ -295,14 +474,90 @@ Loop:
 		call	ShowDigit
 		call	SetBlack
 		call	SetSegment
-
-Wait:
-                movf    TICKS,F
-                btfss   STATUS,Z
-                bra     Wait
-                
-                bra     Loop
 		
+		clrf	UPDATED
+		goto	UpdateLeds
+
+; Display the time flashing the hours in sync with the SQW input.
+
+FlashHours:
+                call	SelectHrHi	; Clear hours segments
+		call	SetBlank
+		call	SelectHrLo
+		call	SetBlank
+		
+		btfss	SQW,SQW_PIN
+		bra	HoursFlashed
+		
+		call	SelectHrHi	; Work out new pixel states
+		swapf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+		
+		call	SelectHrLo
+		movf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+HoursFlashed:
+	
+		call	SelectMnHi
+		swapf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+
+		call	SelectMnLo
+		movf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+
+		clrf	UPDATED
+		goto	UpdateLeds
+
+; Display the time flashing the minutes in sync with the SQW input.
+		
+FlashMinutes:
+		call	SelectHrHi	; Work out new pixel states
+		swapf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+		
+		call	SelectHrLo
+		movf	HR,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+
+                call	SelectMnHi	; Clear minutes segments
+		call	SetBlank
+		call	SelectMnLo
+		call	SetBlank
+
+		btfss	SQW,SQW_PIN
+		bra	MinutesFlashed
+		
+		call	SelectMnHi
+		swapf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+
+		call	SelectMnLo
+		movf	MN,W
+		call	ShowDigit
+		call	SetBlack
+		call	SetSegment
+MinutesFlashed:
+	
+		clrf	UPDATED
+		goto	UpdateLeds
+
+;===============================================================================
+; Segment 
 ;-------------------------------------------------------------------------------
 		
 SelectHrHi:
@@ -528,17 +783,13 @@ Show9:
 		call	SetViolet
 		goto	SetSegment
 		
-		
-;===============================================================================
-; Time Display
-;-------------------------------------------------------------------------------
-		
-
-		
 
 ;===============================================================================
 ; RGB Color Selection
 ;-------------------------------------------------------------------------------
+		
+; The SET_RGB macro loads the RED, GREEN and BLUE registers with a set of scaled
+; values.
 
 SET_RGB		macro	XR,XG,XB,XP
 		movlw	((XR * XP) / .100)
@@ -548,7 +799,7 @@ SET_RGB		macro	XR,XG,XB,XP
 		movlw	((XB * XP) / .100)
 		movwf	BLUE
 		endm
-		
+	
 SetBlack:
 		SET_RGB	h'00',h'00',h'00',.20
 		bra	SetBrightness
@@ -584,14 +835,23 @@ SetIndigo:
 SetViolet:
 		SET_RGB	h'ee',h'82',h'ee',.20
 		bra	SetBrightness
+	
+; TODO:
+Fuscia:
+Turquoise:
+Cyan:
 		
 ; If the display is dimmed then reduce RGB colour values by a fixed.
 		
 SetBrightness:
+; TODO
 		return
 
 ;-------------------------------------------------------------------------------
-			
+
+; Copies the current RED, GREEN and BLUE values to the segment array at FSR0
+; then moves to the next segment.
+		
 SetSegment:
 		movf	RED,W
 		movwi	LED_R[FSR0]
@@ -606,12 +866,15 @@ SetSegment:
 ; DS1307 RTC
 ;-------------------------------------------------------------------------------
 		
+; Initialise the current time from the RTC chip. If the time does not look
+; right then reset it to 00:00 and start the clock. Ensure that a 1Hz SQW
+; signal is being generated.
+		
 RtcInit:
+		call	I2CStop		; Ensure the bus is free
 		call	I2CStop
-		call	I2CStop
-
- 		
-		call	RtcRead
+		call	RtcRead		; Read the current time
+		
 		btfsc	SC,.7		; Is timer running?
 		bra	InvalidTime	; No.
 		btfss	HR,.6		; 24 Hour clock?
@@ -631,11 +894,10 @@ ValidTime:
 		call	I2CSend
 		movlw	h'10'
 		call	I2CSend
-		call	I2CStop	
-		
-		clrf	SS
-		return
+		goto	I2CStop	
 
+; Read the current time from the RTC and store in memory.
+		
 RtcRead:
 		call	I2CStart
 		movlw	DS1307|I2C_WR
@@ -657,7 +919,9 @@ RtcRead:
 		movwf	HR
 		call	I2CNak
 		goto	I2CStop
-		
+
+; Write the time from memory back to the RTC chip
+
 RtcWrite:
 		call	I2CStart
 		movlw	DS1307|I2C_WR
@@ -679,6 +943,8 @@ RtcWrite:
 ;===============================================================================
 ; I2C
 ;-------------------------------------------------------------------------------
+
+; Signal an I2C Start condition by changing SDA rom HI to LO while SCL is HI.
 		
 I2CStart:
 		call	SetSclLo
@@ -686,12 +952,16 @@ I2CStart:
 		call	SetSclHi
 		call	SetSdaLo
 		goto	SetSclLo
-		
+	
+; Signal an I2C Stop condition by changing SDA rom LO to HI while SCL is HI.
+
 I2CStop:
 		call	SetSclLo
 		call	SetSdaLo
 		call	SetSclHi
 		goto	SetSdaHi
+
+; Send an I2C ACK pulse to the slave,
 
 I2CAck:
 		call	SetSdaLo
@@ -699,7 +969,12 @@ I2CAck:
 		call	SetSclLo
 		goto	SetSdaHi
 		
-		
+I2CNak:
+		call	SetSdaHi
+		call	SetSclHi
+		goto	SetSclLo
+			
+; Send 	
 I2CSend:
 		movwf	SCRATCH		; Save the byte to be sent
 		call	I2CTxBit	; Send MSB ..
@@ -709,13 +984,9 @@ I2CSend:
 		call	I2CTxBit
 		call	I2CTxBit
 		call	I2CTxBit
-		call	I2CTxBit	; .. to LSB, then use NAK
+		call	I2CTxBit	; .. to LSB
+		bra	I2CNak		; Ignore the slaves ACK/NAK
 		
-I2CNak:
-		call	SetSdaHi
-		call	SetSclHi
-		goto	SetSclLo
-			
 I2CTxBit:
 		rlf	SCRATCH,F
 		btfsc	STATUS,C
