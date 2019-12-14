@@ -51,23 +51,25 @@ SQW_TRIS        equ     TRISC		; SQW output from DS1307
 SQW_PORT        equ     PORTC
 SQW_PIN         equ     .2
 
-SWA_TRIS        equ     TRISC		; Switch A (SELECT)
-SWA_PORT        equ     PORTC
-SWA_PIN         equ     .4
+SWA_TRIS        equ     TRISA		; Switch A (SELECT)
+SWA_PORT        equ     PORTA
+SWA_WPU		equ	WPUA
+SWA_PIN         equ     .5
             
-SWB_TRIS        equ     TRISC		; Switch B (CHANGE)
-SWB_PORT        equ     PORTC
-SWB_PIN         equ     .5
+SWB_TRIS        equ     TRISA		; Switch B (CHANGE)
+SWB_PORT        equ     PORTA
+SWB_WPU		equ	WPUA
+SWB_PIN         equ     .4
 
 ; Outputs
 
-SCL_TRIS        equ     TRISA		; Software generated I2C SCL
-SCL_LAT		equ	LATA
+SCL_TRIS        equ     TRISC		; Software generated I2C SCL
+SCL_LAT		equ	LATC
 SCL_PIN         equ     .4
 
-SDA_TRIS        equ     TRISA		; Software generated I2C SDA
-SDA_PORT        equ     PORTA
-SDA_LAT		equ	LATA
+SDA_TRIS        equ     TRISC		; Software generated I2C SDA
+SDA_PORT        equ     PORTC
+SDA_LAT		equ	LATC
 SDA_PIN         equ     .5
 
 LED_TRIS        equ     TRISC		; Neo pixel data out
@@ -236,6 +238,8 @@ BumpHours:
                 code
               
 PowerOnReset:
+		banksel OPTION_REG	; Enable WPU register
+		bcf	OPTION_REG,.7
         
                 movlw   b'11111100'     ; Switch to 48Mhz
                 banksel OSCCON
@@ -256,10 +260,12 @@ WaitTillStable:
                 banksel LATA
                 clrf    LATA
                 clrf    LATC
+		banksel	WPUA
+		movwf	WPUA
+                movlw   M(SWA_PIN)|M(SWB_PIN)
                 banksel TRISA           ; Set the I/O directions
-                movlw   .0
                 movwf   TRISA
-                movlw	M(SWA_PIN)|M(SWB_PIN)|M(SQW_PIN) 
+                movlw	M(SQW_PIN) 
                 movwf   TRISC
                 
 ;-------------------------------------------------------------------------------
@@ -1226,6 +1232,8 @@ SEND_BIT        macro   BIT
                 
 SEND_GAP        macro
                 nop
+		nop
+		nop
 		nop
                 nop
                 nop

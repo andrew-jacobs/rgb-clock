@@ -1,4 +1,4 @@
-Copyright (C)2017 Andrew John Jacobs
+Copyright (C)2019 Andrew John Jacobs<br/>
 All rights reserved.
 
 This work is made available under the terms of the Creative Commons
