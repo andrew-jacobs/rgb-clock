@@ -93,12 +93,60 @@ TMR2_PR         equ     FOSC / (.4 * TMR2_HZ * TMR2_PRE * TMR2_POST ) - .1
 DS1307		equ	h'd0'
 I2C_RD		equ	h'01'
 I2C_WR		equ	h'00'
+		
+;===============================================================================
+; Macros
+;-------------------------------------------------------------------------------
+		
+; Transmit the byte in WREG into as a series short (0.4uS) and long (0.85uS)
+; pulses representing zero and one respectively.
+                
+SEND_BIT        macro   BIT
+                bsf     LED_LAT,LED_BIT
+                nop
+                nop
+                nop
+                btfss   WREG,BIT
+                bcf     LED_LAT,LED_BIT
+                nop
+                nop
+                nop
+                nop
+                bcf     LED_LAT,LED_BIT
+                endm
+                
+SEND_GAP        macro
+                nop
+		nop
+		nop
+		nop
+                nop
+                nop
+                endm
+        
+;-------------------------------------------------------------------------------		
+		
+; The SET_RGB macro loads the RED, GREEN and BLUE registers with a set of scaled
+; values.
 
+SET_RGB		macro	XR,XG,XB,XP
+		movlw	((XR * XP) / .100)
+		movwf	RED
+		movlw	((XG * XP) / .100)
+		movwf	GREEN
+		movlw	((XB * XP) / .100)
+		movwf	BLUE
+		endm
+	
 ;===============================================================================
 ; Data Areas
 ;-------------------------------------------------------------------------------
 
                 udata_shr       h'070'
+		
+TICKS           res     .1		; Count down tick counter
+SQW		res	.1		; State of SQW at last interrupt
+UPDATED		res	.1		; Non-zero if SQW has changed
 		
 HR		res	.1		; Hour
 MN		res	.1		; Minute
@@ -107,12 +155,13 @@ SC		res	.1		; Second
 RED		res	.1		; RGB colour
 GREEN		res	.1
 BLUE		res	.1
-         
-TICKS           res     .1		; Count down tick counter
-SQW		res	.1		; State of SQW at last interrupt
-UPDATED		res	.1		; Non-zero if SQW has changed
 		
-BRIGHT		res	.1		; Bit 7 set if bright display
+SAVED_RED	res	.1		; Saved colour
+SAVED_GREEN	res	.1
+SAVED_BLUE	res	.1
+         
+THEME		res	.1		; Colour theme
+BUTTONS		res	.1		; Button states
 
 SCRATCH		res	.1
 
@@ -288,6 +337,8 @@ WaitTillStable:
 		
 		call	RtcInit		; Read initial time
 		
+		clrf	THEME
+	
                 bsf     INTCON,PEIE	; Start interrupt handling
                 bsf     INTCON,GIE
       
@@ -556,7 +607,7 @@ FlashMinutes:
 		movf	MN,W
 		call	ShowDigit
 		call	SetBlack
-		call	SetSegment
+		call	SetSegment	; PM??
 MinutesFlashed:
 	
 		clrf	UPDATED
@@ -596,6 +647,8 @@ SelectMnLo:
 
 ;-------------------------------------------------------------------------------
 
+; Set all of the colour data for the selected display to black.
+		
 SetBlank:
 		call	SetBlack
 		call	SetSegment
@@ -610,26 +663,42 @@ SetBlank:
 ;-------------------------------------------------------------------------------
 		
 ShowDigit:
+		movwf	SCRATCH
+		movf	THEME,W
+		andlw	.3
+		brw
+		goto	FixedSegment
+		goto	FixedNumber
+		goto	Rotating
+		goto	DawnToDusk
+    
+;===============================================================================
+; Theme 0 - Fixed Segment Colours
+;-------------------------------------------------------------------------------
+    
+FixedSegment:
+		movf	SCRATCH,W
 		andlw	h'0f'
 		brw
 		
-		bra	Show0
-		bra	Show1
-		bra	Show2
-		bra	Show3
-		bra	Show4
-		bra	Show5
-		bra	Show6
-		bra	Show7
-		bra	Show8
-		bra	Show9
+		goto	Fixed0
+		goto	Fixed1
+		goto	Fixed2
+		goto	Fixed3
+		goto	Fixed4
+		goto	Fixed5
+		goto	Fixed6
+		goto	Fixed7
+		goto	Fixed8
+		goto	Fixed9
+		return
 		return
 		return
 		return
 		return
 		return
 		
-Show0:
+Fixed0:
 		call	SetRed
 		call	SetSegment
 		call	SetOrange
@@ -645,7 +714,7 @@ Show0:
 		call	SetBlack
 		goto	SetSegment
 
-Show1:
+Fixed1:
 		call	SetBlack
 		call	SetSegment
 		call	SetOrange
@@ -661,7 +730,7 @@ Show1:
 		call	SetBlack
 		goto	SetSegment
 
-Show2:
+Fixed2:
 		call	SetRed
 		call	SetSegment
 		call	SetOrange
@@ -677,7 +746,7 @@ Show2:
 		call	SetViolet
 		goto	SetSegment
 
-Show3:
+Fixed3:
 		call	SetRed
 		call	SetSegment
 		call	SetOrange
@@ -693,7 +762,7 @@ Show3:
 		call	SetViolet
 		goto	SetSegment
 
-Show4:
+Fixed4:
 		call	SetBlack
 		call	SetSegment
 		call	SetOrange
@@ -709,7 +778,7 @@ Show4:
 		call	SetViolet
 		goto	SetSegment
 		
-Show5:
+Fixed5:
 		call	SetRed
 		call	SetSegment
 		call	SetBlack
@@ -725,42 +794,10 @@ Show5:
 		call	SetViolet
 		goto	SetSegment
 		
-Show6:
+Fixed6:
 		call	SetRed
 		call	SetSegment
 		call	SetBlack
-		call	SetSegment
-		call	SetYellow
-		call	SetSegment
-		call	SetGreen
-		call	SetSegment
-		call	SetBlue
-		call	SetSegment
-		call	SetIndigo
-		call	SetSegment
-		call	SetViolet
-		goto	SetSegment
-		
-Show7:
-		call	SetRed
-		call	SetSegment
-		call	SetOrange
-		call	SetSegment
-		call	SetYellow
-		call	SetSegment
-		call	SetBlack
-		call	SetSegment
-		call	SetBlack
-		call	SetSegment
-		call	SetBlack
-		call	SetSegment
-		call	SetBlack
-		goto	SetSegment
-		
-Show8:
-		call	SetRed
-		call	SetSegment
-		call	SetOrange
 		call	SetSegment
 		call	SetYellow
 		call	SetSegment
@@ -773,7 +810,39 @@ Show8:
 		call	SetViolet
 		goto	SetSegment
 		
-Show9:
+Fixed7:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetBlack
+		goto	SetSegment
+		
+Fixed8:
+		call	SetRed
+		call	SetSegment
+		call	SetOrange
+		call	SetSegment
+		call	SetYellow
+		call	SetSegment
+		call	SetGreen
+		call	SetSegment
+		call	SetBlue
+		call	SetSegment
+		call	SetIndigo
+		call	SetSegment
+		call	SetViolet
+		goto	SetSegment
+		
+Fixed9:
 		call	SetRed
 		call	SetSegment
 		call	SetOrange
@@ -789,70 +858,508 @@ Show9:
 		call	SetViolet
 		goto	SetSegment
 		
+;===============================================================================
+; Fixed Number Colours
+;-------------------------------------------------------------------------------
+		
+FixedNumber:
+		movf	SCRATCH,W
+		andlw	h'0f'
+		brw
+		
+		goto	Number0
+		goto	Number1
+		goto	Number2
+		goto	Number3
+		goto	Number4
+		goto	Number5
+		goto	Number6
+		goto	Number7
+		goto	Number8
+		goto	Number9
+		return
+		return
+		return
+		return
+		return
+		return
+		
+Number0:
+		call	SetRed
+Digit0:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		goto	SetSegment
 
+Number1:
+		call	SetOrange
+Digit1:
+		call	PushColour
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		goto	SetSegment
+
+Number2:
+		call	SetYellow
+Digit2:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		goto	SetSegment
+
+Number3:
+		call	SetGreen
+Digit3:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	PullColour
+		goto	SetSegment
+
+Number4:
+		call	SetBlue
+Digit4:
+		call	PushColour
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		goto	SetSegment
+		
+Number5:
+		call	SetIndigo
+Digit5:
+		call	PushColour
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		goto	SetSegment
+		
+Number6:
+		call	SetViolet
+Digit6:
+		call	PushColour
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		goto	SetSegment
+		
+Number7:
+		call	SetFuchsia
+Digit7:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		goto	SetSegment
+		
+Number8:
+		call	SetTurquoise
+Digit8:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		goto	SetSegment
+		
+Number9:
+		call	SetCyan
+Digit9:
+		call	PushColour
+		call	SetSegment
+		call	SetSegment
+		call	SetSegment
+		call	SetBlack
+		call	SetSegment
+		call	SetSegment
+		call	PullColour
+		call	SetSegment
+		goto	SetSegment
+
+;===============================================================================
+;-------------------------------------------------------------------------------
+		
+Rotating:
+		movf	MN,W
+		call	SetColour
+DoDigit:
+		movf	SCRATCH,W
+		andlw	h'0f'
+		brw
+		
+		goto	Digit0
+		goto	Digit1
+		goto	Digit2
+		goto	Digit3
+		goto	Digit4
+		goto	Digit5
+		goto	Digit6
+		goto	Digit7
+		goto	Digit8
+		goto	Digit9
+		return
+		return
+		return
+		return
+		return
+		return
+    
+;===============================================================================
+;-------------------------------------------------------------------------------
+
+DawnToDusk:
+		movf	HR,W
+		andlw	h'3f'
+		brw
+		
+		goto	Hour00
+		goto	Hour01
+		goto	Hour02
+		goto	Hour03
+		goto	Hour04
+		goto	Hour05
+		goto	Hour06
+		goto	Hour07
+		goto	Hour08
+		goto	Hour09
+		return
+		return
+		return
+		return
+		return
+		return
+		
+		goto	Hour10
+		goto	Hour11
+		goto	Hour12
+		goto	Hour13
+		goto	Hour14
+		goto	Hour15
+		goto	Hour16
+		goto	Hour17
+		goto	Hour18
+		goto	Hour19
+		return
+		return
+		return
+		return
+		return
+		return
+		
+		goto	Hour20
+		goto	Hour21
+		goto	Hour22
+		goto	Hour23
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		return
+		
+		return
+ 		return
+		return
+		return
+		return
+ 		return
+		return
+		return
+		return
+ 		return
+		return
+		return
+		return
+ 		return
+		return
+		return
+
+Hour00:
+		SET_RGB h'24',h'25',h'a4',.20
+		goto	DoDigit
+    
+Hour01:
+		SET_RGB h'00',h'01',h'9d',.20
+		goto	DoDigit
+    
+Hour02:
+		SET_RGB h'00',h'01',h'ab',.20
+		goto	DoDigit
+    
+Hour03:
+		SET_RGB h'00',h'07',h'bf',.20
+		goto	DoDigit
+    
+Hour04:
+		SET_RGB h'38',h'61',h'b6',.20
+		goto	DoDigit
+    
+Hour05:
+		SET_RGB h'50',h'95',h'cc',.20
+		goto	DoDigit
+    
+Hour06:
+		SET_RGB h'5f',h'b4',h'c2',.20
+		goto	DoDigit
+    
+Hour07:
+		SET_RGB h'8c',h'dd',h'c8',.20
+		goto	DoDigit
+    
+Hour08:
+		SET_RGB h'99',h'e5',h'ae',.20
+		goto	DoDigit
+    
+Hour09:
+		SET_RGB h'f8',h'fe',h'86',.20
+		goto	DoDigit
+    
+Hour10:
+		SET_RGB h'ec',h'ff',h'dd',.20
+		goto	DoDigit
+    
+Hour11:
+		SET_RGB h'9c',h'ff',h'e2',.20
+		goto	DoDigit
+    
+Hour12:
+		SET_RGB h'80',h'ff',h'ff',.20
+		goto	DoDigit
+    
+Hour13:
+		SET_RGB h'80',h'ff',h'ff',.20
+		goto	DoDigit
+    
+Hour14:
+		SET_RGB h'5b',h'ec',h'ed',.20
+		goto	DoDigit
+    
+Hour15:
+		SET_RGB h'3e',h'dd',h'de',.20
+		goto	DoDigit
+    
+Hour16:
+		SET_RGB h'0d',h'c4',h'c6',.20
+		goto	DoDigit
+    
+Hour17:
+		SET_RGB h'20',h'c7',h'c8',.20
+		goto	DoDigit
+    
+Hour18:
+		SET_RGB h'74',h'dc',h'dc',.20
+		goto	DoDigit
+    
+Hour19:
+		SET_RGB h'ff',h'b5',h'61',.20
+		goto	DoDigit
+    
+Hour20:
+		SET_RGB h'fa',h'7a',h'56',.20
+		goto	DoDigit
+    
+Hour21:
+		SET_RGB h'e3',h'4a',h'54',.20
+		goto	DoDigit
+    
+Hour22:
+		SET_RGB h'a0',h'6f',h'c7',.20
+		goto	DoDigit
+    
+Hour23:
+		SET_RGB h'5b',h'5b',h'da',.20
+		goto	DoDigit
+     
 ;===============================================================================
 ; RGB Color Selection
 ;-------------------------------------------------------------------------------
-		
-; The SET_RGB macro loads the RED, GREEN and BLUE registers with a set of scaled
-; values.
 
-SET_RGB		macro	XR,XG,XB,XP
-		movlw	((XR * XP) / .100)
-		movwf	RED
-		movlw	((XG * XP) / .100)
-		movwf	GREEN
-		movlw	((XB * XP) / .100)
-		movwf	BLUE
-		endm
-	
+SetColour:
+		andlw	h'0f'
+		brw
+		goto	SetRed
+		goto	SetOrange
+		goto	SetYellow
+		goto	SetGreen
+		goto	SetBlue
+		goto	SetIndigo
+		goto	SetViolet
+		goto	SetFuchsia
+		goto	SetTurquoise
+		goto	SetCyan
+		return
+		return
+		return
+		return
+		return
+		return		
+		
 SetBlack:
 		SET_RGB	h'00',h'00',h'00',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetWhite:
 		SET_RGB	h'ff',h'ff',h'ff',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetRed:
 		SET_RGB	h'ff',h'00',h'00',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetOrange:
 		SET_RGB	h'ff',h'8c',h'00',.20
-		bra	SetBrightness
+		goto	SetBrightness
     
 SetYellow:
 		SET_RGB	h'ff',h'ff',h'00',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetGreen:
 		SET_RGB	h'00',h'ff',h'00',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetBlue:
 		SET_RGB	h'00',h'00',h'ff',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetIndigo:
 		SET_RGB	h'4b',h'00',h'82',.20
-		bra	SetBrightness
+		goto	SetBrightness
 		
 SetViolet:
 		SET_RGB	h'ee',h'82',h'ee',.20
-		bra	SetBrightness
-	
-; TODO:
-Fuscia:
-Turquoise:
-Cyan:
+		goto	SetBrightness
+
+SetFuchsia:
+		SET_RGB h'ca',h'2c',h'92',.20
+		goto	SetBrightness
 		
-; If the display is dimmed then reduce RGB colour values by a fixed.
+SetTurquoise:
+		SET_RGB h'40',h'e0',h'd0',.20
+		goto	SetBrightness
+		
+SetCyan:
+		SET_RGB h'00',h'ff',h'ff',.20
+		goto	SetBrightness
+				
+; If the display is dimmed then reduce RGB colour values by a fixed factor
 		
 SetBrightness:
-; TODO
+		movf	HR,W
+		xorlw	h'23'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'00' ^ h'23'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'01' ^ h'00'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'02' ^ h'01'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'03' ^ h'02'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'04' ^ h'03'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'05' ^ h'04'
+		btfsc	STATUS,Z
+		bra	Dim
+		xorlw	h'06' ^ h'05'
+		btfsc	STATUS,Z
+		bra	Dim
+		return
+		
+Dim:
+		lsrf	RED,F
+		lsrf	RED,F
+		lsrf	GREEN,F
+		lsrf	GREEN,F
+		lsrf	BLUE,F
+		lsrf	BLUE,F
+		return
+		
+; Save the current RGB colour values.
+		
+PushColour:
+		movf	RED,W
+		movwf	SAVED_RED
+		movf	GREEN,W
+		movwf	SAVED_GREEN
+		movf	BLUE,W
+		movwf	SAVED_BLUE
 		return
 
+; Restore the saved RGB colour values.
+
+PullColour:
+		movf	SAVED_RED,W
+		movwf	RED
+		movf	SAVED_GREEN,W
+		movwf	GREEN
+		movf	SAVED_BLUE,W
+		movwf	BLUE
+		return
+		
 ;-------------------------------------------------------------------------------
 
 ; Copies the current RED, GREEN and BLUE values to the segment array at FSR0
@@ -1212,32 +1719,6 @@ RotateLed:
                 call    SendByte
                 moviw   SEG_P+LED_B[FSR0]
                 goto    SendByte
-        
-; Transmit the byte in WREG into as a series short (0.4uS) and long (0.85uS)
-; pulses representing zero and one respectively.
-                
-SEND_BIT        macro   BIT
-                bsf     LED_LAT,LED_BIT
-                nop
-                nop
-                nop
-                btfss   WREG,BIT
-                bcf     LED_LAT,LED_BIT
-                nop
-                nop
-                nop
-                nop
-                bcf     LED_LAT,LED_BIT
-                endm
-                
-SEND_GAP        macro
-                nop
-		nop
-		nop
-		nop
-                nop
-                nop
-                endm
         
 SendByte:
                 banksel LED_LAT         ; Select correct SFR bank
