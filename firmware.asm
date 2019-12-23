@@ -5,6 +5,7 @@
 ; |  _ <| |_| | |_) |_____| |___| | (_) | (__|   < 
 ; |_| \_\\____|____/       \____|_|\___/ \___|_|\_\
 ;                                                  
+; An Simple Clock Using RGB Digits
 ;-------------------------------------------------------------------------------
 ; Copyright (C)2019 Andrew John Jacobs.
 ; All rights reserved.
@@ -204,6 +205,10 @@ S4              res     .8 * .3		; Minute Lo
                 movf    TICKS,F         ; Any ticks left?
                 btfss   STATUS,Z
                 decf    TICKS,F         ; Yes, reduce the count
+		
+		banksel	SWA_PORT	; Sample switch states	    
+		movf	SWA_PORT,W
+		movwf	BUTTONS
 				
 		banksel	SQW_PORT	; Read SQW state
 		movf	SQW_PORT,W
@@ -366,11 +371,10 @@ WaitForPress:
 		movlw	.10		; Set press timeout
 		movwf	TICKS
 		
-		banksel	SWA_PORT	; Check switches
-		btfss	SWA_PORT,SWA_PIN
+		btfss	BUTTONS,SWA_PIN	; Check switches
 		bra	TimeRelease	
-		btfss	SWB_PORT,SWB_PIN
-		bra	ThemeRelease
+		btfss	BUTTONS,SWB_PIN
+		bra	AlterTheme
 
 		bra	WaitForPress
 
@@ -381,13 +385,12 @@ TimeRelease:
 		movf	UPDATED,W	; Has SQW changed?
 		btfss	STATUS,Z
 		call	FlashSeconds	; Yes, update the time
-		
-		banksel	SWA_PORT	; Has the switch been released?
-		btfss	SWA_PORT,SWA_PIN
+			
+		btfss	BUTTONS,SWA_PIN	; Has the switch been released?
 		bra	TimeRelease	; No
 		movf	TICKS,W		; Yes, for debounce period?
 		btfss	STATUS,Z
-		bra	WaitForPress	; No.
+		bra	TimeRelease	; No.
 		
 AlterHours:
 		clrwdt
@@ -397,11 +400,10 @@ AlterHours:
 		
 		movlw	.10		; Set press timeout
 		movwf	TICKS
-		
-		banksel	SWA_PORT	; Check switches
-		btfss	SWA_PORT,SWA_PIN
+			
+		btfss	BUTTONS,SWA_PIN ; Check switches
 		bra	HoursRelease	
-		btfsc	SWB_PORT,SWB_PIN
+		btfsc	BUTTONS,SWB_PIN
 		bra	AlterHours
 		
 RepeatHours:
@@ -415,9 +417,8 @@ HeldHours:
 		movf	UPDATED,W	; Has SQW changed?
 		btfss	STATUS,Z
 		call	FlashHours
-		
-		banksel	SWB_PORT	; Switch held?
-		btfsc	SWB_PORT,SWB_PIN
+			
+		btfsc	BUTTONS,SWB_PIN ; Switch held?
 		bra	AlterHours
 	
 		movf	TICKS,W		; Timeout out?
@@ -433,8 +434,7 @@ HoursRelease:
 		btfss	STATUS,Z
 		call	FlashHours
 		
-		banksel	SWA_PORT	; Has the switch been released?
-		btfss	SWA_PORT,SWA_PIN
+		btfss	BUTTONS,SWA_PIN ; Has the switch been released?
 		bra	HoursRelease	; No
 		movf	TICKS,W		; Yes, for debounce period?
 		btfss	STATUS,Z
@@ -449,15 +449,15 @@ AlterMinutes:
 		movlw	.10		; Set press timeout
 		movwf	TICKS
 		
-		banksel	SWA_PORT	; Check switches
-		btfss	SWA_PORT,SWA_PIN
+		btfss	BUTTONS,SWA_PIN ; Check switches
 		bra	MinutesRelease	
-		btfsc	SWB_PORT,SWB_PIN
+		btfsc	BUTTONS,SWB_PIN
 		bra	AlterMinutes
 		
 RepeatMinutes:
 		call	BumpMinutes
-
+		clrf	SC
+		
 		movlw	.100		; Set repeat timeout
 		movwf	TICKS
 		
@@ -466,9 +466,8 @@ HeldMinutes:
 		movf	UPDATED,W	; Has SQW changed?
 		btfss	STATUS,Z
 		call	FlashMinutes
-		
-		banksel	SWB_PORT	; Switch held?
-		btfsc	SWB_PORT,SWB_PIN
+			
+		btfsc	BUTTONS,SWB_PIN ; Switch held?
 		bra	AlterMinutes
 	
 		movf	TICKS,W		; Timeout out?
@@ -480,23 +479,34 @@ HeldMinutes:
 		
 MinutesRelease:
 		clrwdt			; Has the switch been released?
-		banksel	SWA_PORT
-		btfss	SWA_PORT,SWA_PIN
+		btfss	BUTTONS,SWA_PIN
 		bra	MinutesRelease	; No
 		movf	TICKS,W		; Yes, for debounce period?
 		btfss	STATUS,Z
 		bra	AlterMinutes	; No.
 		
+		clrf	SC
 		call	RtcWrite	; Save back to RTC
 		bra	WaitForPress	; .. and go back to display
 		
 ;-------------------------------------------------------------------------------
+
+AlterTheme:
+		incf	THEME,W		; Change the theme
+		andlw	h'03'
+		movwf	THEME
 		
 ThemeRelease:
-
-		bra	WaitForPress
-	
+		clrwdt	
+		movf	UPDATED,W	; Has SQW changed?
+		btfss	STATUS,Z
+		call	FlashSeconds	; Yes, update the time
 		
+		btfss	BUTTONS,SWB_PIN ; Has the switch been released?
+		bra	ThemeRelease	; No
+
+		bra	WaitForPress	; Wait for next press
+	
 ;===============================================================================
 ; Time Display
 ;-------------------------------------------------------------------------------

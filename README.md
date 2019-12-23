@@ -32,6 +32,8 @@ The design of the DS1307 RTC board seems to have changed over time. The image on
 # Operation
 On power up the clock displays the time and flashes the central dots once a second.
 
+![Finished?](images/clock.jpg)
+
 Pressing the left hand switch takes you into time setting mode. The hours flash and can be advanced by pressing the right switch for one increment or holding it pressed for auto repeating increments. Another press to the left switch lets you change the minutes value. A final press of the left switch updates the RTC with the final value and returns to time display.
 
 Pressing the right hand switch cycles the display through different colour themes. Currently these are:
@@ -41,4 +43,4 @@ Pressing the right hand switch cycles the display through different colour theme
 - Colour cycling based on the last digit of the minutes
 - Colour cycling based on the hour of the day.
 
-In the first three modes the intensity of the display is reduced when the time is between 10pm and 6am.
+In the first three modes the intensity of the display is reduced when the time is between 10pm and 6am. In the last mode darker colours are used at night.
